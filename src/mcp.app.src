@@ -1,0 +1,18 @@
+{application, mcp,
+ [{description, "MCP server (JSON-RPC over HTTP) with file system tools (sandboxed)"},
+  {vsn, "0.1.0"},
+  {registered, [mcp_sup]},
+  {mod, {mcp_app, []}},
+  {applications, [
+      kernel,
+      stdlib,
+      emcp
+  ]},
+  {env, [
+      %% Root directory for all file operations (must exist)
+      {root_dir, "/tmp/mcp_root"},
+      %% HTTP listen options
+      {listen_ip, "127.0.0.1"},
+      {listen_port, 8080}
+  ]}
+ ]}.
