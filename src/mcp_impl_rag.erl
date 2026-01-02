@@ -30,151 +30,162 @@ schema() ->
 
 tools_info() ->
     [
-        #{ name        => <<"search_chunks">>,
-           description => <<"Search text chunks in the RAG. The API searches for chunks"
-                            " matching the provided text. Optional filters include"
-                            " document ID and source type (file, web, LLM, project)."
-                            " Returns a list of relevant text chunks. It's possible to increase"
-                            " the number of returned chunks by setting the limit parameter.">>,
-           inputSchema => #{
-               type       => object,
-               properties => #{
-                   <<"text">>   => #{ type => string, description => <<"The text to search for.">> },
-                   <<"limit">>  => #{ type => integer, description => <<"The maximum number of chunks in the response.">>,
-                                        default => 10 },
-                   <<"doc_id">> => #{ type => integer, description => <<"Optional document ID to filter chunks.">> },
-                   <<"source">> => #{ type => string, description => <<"Optional source to filter chunks.">>,
-                                        enum => [<<"file">>, <<"web">>, <<"LLM">>, <<"project">>] },
-                   <<"project_name">> => #{ type => string, description => <<"Optional project name to filter chunks.">> }
-               },
-               required => [<<"text">>]
-           },
-           outputSchema => #{
-               type       => object,
-               properties => #{
-                   <<"chunks">> => #{ type => array,
-                                     items => #{
-                                         type => object,
-                                         properties => #{
-                                             <<"content">> => #{ type => string, description => <<"The text content of the chunk.">> },
-                                             <<"content_type">> => #{ type => string, description => <<"The MIME type of the content.">> },
-                                             <<"distance">> => #{ type => number, description => <<"The distance metric indicating relevance.">> },
-                                             <<"doc_id">> => #{ type => integer, description => <<"The ID of the document the chunk belongs to.">> },
-                                             <<"filename">> => #{ type => string, description => <<"The filename from which the chunk was extracted.">> },
-                                             <<"id">> => #{ type => integer, description => <<"The unique ID of the chunk.">> },
-                                             <<"idx">> => #{ type => integer, description => <<"The index of the chunk within the document.">> },
-                                             <<"source">> => #{ type => string, description => <<"The source of the chunk (e.g., file, web, LLM).">> },
-                                             <<"updated_at">> => #{ type => string, description => <<"The timestamp when the chunk was last updated.">> },
-                                             <<"url">> => #{ type => [string, null], description => <<"The URL associated with the chunk, if any.">> },
-                                             <<"project_name">> => #{ type => [string, null], description => <<"The name of the project the chunk is associated with.">> },
-                                             <<"doc_total_chunks">> => #{
-                                                type => integer, 
-                                                description => <<"Total number of chunks in the document corresponding to the retrieved chunks. (Useful for range calculations).">>}
-                                         }
-                                     },
-                                     description => <<"List of matching text chunks with their details.">>
-                                   }
-               }
-           },
-           function => fun search_chunks/3
-         },
-
-        #{ name        => <<"get_chunk_neighbors">>,
-           description => <<"Retrieves a specified chunk and an optional number of adjacent chunks (neighbors) before and after it.">>,
-           inputSchema => #{
-              type => object,
-              properties => #{
-                    <<"chunk_id">> => #{
-                         type => integer,
-                         description => <<"The **ID** of the **central chunk** to retrieve and find neighbors for.">> },
-                    <<"max_succeeding_chunks">> => #{
-                         type => integer,
-                         description => <<"The maximum **non-negative count** of chunks immediately **following** the central chunk to include.">>,
-                         default => 1 },
-                    <<"max_preceding_chunks">> => #{
-                         type => integer,
-                         description => <<"The maximum **non-negative count** of chunks immediately **preceding** the central chunk to include.">>,
-                         default => 1 }
-               },
-               required => [<<"chunk_id">>]
-            },
-           function    => fun get_chunk_neighbors/3
-         },
-
-        #{ name        => <<"add_document">>,
-           description => <<"Store a text document to the RAG. The document will be chunked"
-                            " and indexed for future retrieval. The source of the document"
-                            " will be \"LLM\". The markdown format is preferred for better chunking."
-                            " It's recommended to add to the document some metadata: Date/time of"
-                            " creation, document name or short description.">>,
-           inputSchema => #{
-              type => object,
-              properties => #{
-                    <<"text">>      => #{ type => string, description => <<"The content of the document">> },
-                    <<"filename">>  => #{ type => string, description => <<"The optional filename of the document">>}
-              },
-              required => [<<"text">>, <<"filename">>]
-            },
-           function    => fun add_document/3
-         },
-
-        #{ name => <<"get_project_files_list">>,
-           description => <<"Get the list of files associated with a specific project."
-                            " A project_id or project_name should be provided. If not - all documents"
-                            " that not related to any document will be returned">>,
-           inputSchema => #{
-              type => object,
-              properties => #{
-                    <<"project_id">> => #{ type => integer, description => <<"The ID of the project to retrieve files for.">> },
-                    <<"project_name">> => #{ type => string, description => <<"The name of the project to retrieve files for.">> }
-              }
-           },
-          function    => fun get_project_files_list/3
-         },
-
-        #{ name        => <<"get_document_content">>,
-           description => <<"Retrieves a structural summary of the document, returned as a list of selected chunks. "
-                            "This method avoids full document reconstruction and is designed to provide "
-                            "essential structural context (imports, headers, footer functions) within the size limit. "
-                            "The result includes the N first and M last chunks, which may contain overlap (ignored by LLM).">>,
-        inputSchema => #{
-            type => object,
-            properties => #{
-                    <<"doc_id">> => #{
-                        type => integer,
-                        description => <<"The ID of the document to retrieve.">>
+        #{ definition =>
+             #{ name        => <<"search_chunks">>,
+                description => <<"Search text chunks in the RAG. The API searches for chunks"
+                                    " matching the provided text. Optional filters include"
+                                    " document ID and source type (file, web, LLM, project)."
+                                    " Returns a list of relevant text chunks. It's possible to increase"
+                                    " the number of returned chunks by setting the limit parameter.">>,
+                inputSchema => #{
+                    type       => object,
+                    properties => #{
+                        <<"text">>   => #{ type => string, description => <<"The text to search for.">> },
+                        <<"limit">>  => #{ type => integer, description => <<"The maximum number of chunks in the response.">>,
+                                                default => 10 },
+                        <<"doc_id">> => #{ type => integer, description => <<"Optional document ID to filter chunks.">> },
+                        <<"source">> => #{ type => string, description => <<"Optional source to filter chunks.">>,
+                                                enum => [<<"file">>, <<"web">>, <<"LLM">>, <<"project">>] },
+                        <<"project_name">> => #{ type => string, description => <<"Optional project name to filter chunks.">> }
                     },
-                    
-                    <<"first_chunks">> => #{ 
-                        type => integer, 
-                        description => <<"The number of chunks to retrieve from the beginning of the document (N).">>, 
-                        default => 3 
-                    },
-                    <<"last_chunks">> => #{ 
-                        type => integer, 
-                        description => <<"The number of chunks to retrieve from the end of the document (M).">>, 
-                        default => 2
-                    }
-            },
-            required => [<<"doc_id">>]
-        },
-        outputSchema => #{
-            type => object,
-            properties => #{
-                <<"summary_chunks">> => #{ 
-                    type => array, 
-                    items => #{ type => object,
-                                properties => #{ <<"id">> => #{ type => integer },
-                                                 <<"idx">> => #{ type => integer },
-                                                 <<"content">> => #{ type => string } } }, 
-                    description => <<"List of N starting chunks and M ending chunks, ordered by index. Overlap must be ignored by the LLM.">> 
+                    required => [<<"text">>]
                 },
-                <<"message">> => #{ type => string, description => <<"A status message indicating how many chunks were skipped in the middle.">> }
-            }
+                outputSchema => #{
+                    type       => object,
+                    properties => #{
+                        <<"chunks">> => #{
+                            type => array,
+                            items => #{
+                                type => object,
+                                properties => #{
+                                    <<"content">> => #{ type => string, description => <<"The text content of the chunk.">> },
+                                    <<"content_type">> => #{ type => string, description => <<"The MIME type of the content.">> },
+                                    <<"distance">> => #{ type => number, description => <<"The distance metric indicating relevance.">> },
+                                    <<"doc_id">> => #{ type => integer, description => <<"The ID of the document the chunk belongs to.">> },
+                                    <<"filename">> => #{ type => string, description => <<"The filename from which the chunk was extracted.">> },
+                                    <<"id">> => #{ type => integer, description => <<"The unique ID of the chunk.">> },
+                                    <<"idx">> => #{ type => integer, description => <<"The index of the chunk within the document.">> },
+                                    <<"source">> => #{ type => string, description => <<"The source of the chunk (e.g., file, web, LLM).">> },
+                                    <<"updated_at">> => #{ type => string, description => <<"The timestamp when the chunk was last updated.">> },
+                                    <<"url">> => #{ type => [string, null], description => <<"The URL associated with the chunk, if any.">> },
+                                    <<"project_name">> => #{ type => [string, null], description => <<"The name of the project the chunk is associated with.">> },
+                                    <<"doc_total_chunks">> => #{
+                                        type => integer, 
+                                        description => <<"Total number of chunks in the document corresponding to the retrieved chunks. (Useful for range calculations).">>}
+                                }
+                            },
+                            description => <<"List of matching text chunks with their details.">>
+                        }
+                    }
+                }
+              },
+            function => fun search_chunks/3
+         },
+
+        #{ definition =>
+             #{ name        => <<"get_chunk_neighbors">>,
+                description => <<"Retrieves a specified chunk and an optional number of adjacent chunks (neighbors) before and after it.">>,
+                inputSchema => #{
+                    type => object,
+                    properties => #{
+                            <<"chunk_id">> => #{
+                                type => integer,
+                                description => <<"The **ID** of the **central chunk** to retrieve and find neighbors for.">> },
+                            <<"max_succeeding_chunks">> => #{
+                                type => integer,
+                                description => <<"The maximum **non-negative count** of chunks immediately **following** the central chunk to include.">>,
+                                default => 1 },
+                            <<"max_preceding_chunks">> => #{
+                                type => integer,
+                                description => <<"The maximum **non-negative count** of chunks immediately **preceding** the central chunk to include.">>,
+                                default => 1 }
+                    },
+                    required => [<<"chunk_id">>]
+                }
+             },
+           function    => fun get_chunk_neighbors/3
         },
-        function    => fun get_document_content/3
+
+        #{ definition =>
+             #{ name        => <<"add_document">>,
+                description => <<"Store a text document to the RAG. The document will be chunked"
+                                    " and indexed for future retrieval. The source of the document"
+                                    " will be \"LLM\". The markdown format is preferred for better chunking."
+                                    " It's recommended to add to the document some metadata: Date/time of"
+                                    " creation, document name or short description.">>,
+                inputSchema => #{
+                    type => object,
+                    properties => #{
+                            <<"text">>      => #{ type => string, description => <<"The content of the document">> },
+                            <<"filename">>  => #{ type => string, description => <<"The optional filename of the document">>}
+                    },
+                    required => [<<"text">>, <<"filename">>]
+                }
+             },
+           function    => fun add_document/3
+        },
+
+        #{ definition => 
+             #{ name => <<"get_project_files_list">>,
+                description => <<"Get the list of files associated with a specific project."
+                                    " A project_id or project_name should be provided. If not - all documents"
+                                    " that not related to any document will be returned">>,
+                inputSchema => #{
+                    type => object,
+                    properties => #{
+                            <<"project_id">> => #{ type => integer, description => <<"The ID of the project to retrieve files for.">> },
+                            <<"project_name">> => #{ type => string, description => <<"The name of the project to retrieve files for.">> }
+                    }
+                }
+             },
+           function    => fun get_project_files_list/3
+        },
+
+        #{ definition =>
+             #{ name        => <<"get_document_content">>,
+                description => <<"Retrieves a structural summary of the document, returned as a list of selected chunks. "
+                                    "This method avoids full document reconstruction and is designed to provide "
+                                    "essential structural context (imports, headers, footer functions) within the size limit. "
+                                    "The result includes the N first and M last chunks, which may contain overlap (ignored by LLM).">>,
+                inputSchema => #{
+                    type => object,
+                    properties => #{
+                            <<"doc_id">> => #{
+                                type => integer,
+                                description => <<"The ID of the document to retrieve.">>
+                            },
+                            
+                            <<"first_chunks">> => #{ 
+                                type => integer, 
+                                description => <<"The number of chunks to retrieve from the beginning of the document (N).">>, 
+                                default => 3 
+                            },
+                            <<"last_chunks">> => #{ 
+                                type => integer, 
+                                description => <<"The number of chunks to retrieve from the end of the document (M).">>, 
+                                default => 2
+                            }
+                    },
+                    required => [<<"doc_id">>]
+                },
+                outputSchema => #{
+                    type => object,
+                    properties => #{
+                        <<"summary_chunks">> => #{ 
+                            type => array, 
+                            items => #{ type => object,
+                                        properties => #{ <<"id">> => #{ type => integer },
+                                                        <<"idx">> => #{ type => integer },
+                                                        <<"content">> => #{ type => string } } }, 
+                            description => <<"List of N starting chunks and M ending chunks, ordered by index. Overlap must be ignored by the LLM.">> 
+                        },
+                        <<"message">> => #{ type => string, description => <<"A status message indicating how many chunks were skipped in the middle.">> }
+                    }
+                }
+           },
+         function    => fun get_document_content/3
         }
-   ].
+    ].
 
 resources_info() ->
     [
