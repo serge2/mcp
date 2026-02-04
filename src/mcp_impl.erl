@@ -401,49 +401,35 @@ http_call_f(_Name, #{<<"url">> := URL, <<"path">> :=Path} = Args, ExtraParams) -
             {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
     end.
 
+%% Helper for processing headless browser API responses
+process_response({ok, {{_, 200, _}, _, RespBody}}) ->
+    {structured_ok, jsx:decode(RespBody)};
+process_response({ok, {{_, Code, _}, _, RespBody}}) ->
+    ErrorMsg = try 
+        Data = jsx:decode(RespBody),
+        maps:get(<<"error">>, Data, RespBody)
+    catch _:_ -> 
+        RespBody 
+    end,
+    {error, unicode:characters_to_binary(io_lib:format("Browser Error (Status ~p): ~ts", [Code, ErrorMsg]))};
+process_response({error, Reason}) ->
+    {error, unicode:characters_to_binary(io_lib:format("Request failed: ~p", [Reason]))}.
+
 http_session_create(_Name, Args, _ExtraParams) ->
     ExtraArgs = maps:with([<<"width">>, <<"height">>, <<"mobile">>, <<"locale">>, <<"idle_timeout">>], Args),
     ReqBody = jsx:encode(ExtraArgs),
     Request = {<<"http://localhost:8000/session/create">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, _RespCode, _StatusString}, _RespHeaders, _RespBody} = Resp} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~tp", [Resp])])};
-
-        {error, Reason} ->
-            logger:error("Request error:~n~p~n", [Reason]),
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_close(_Name, #{<<"session_id">> := Session} = _Args, _ExtraParams) ->
     Request = {<<"http://localhost:8000/session/", Session/binary, "/close">>, [], "application/json", <<>>},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, _RespCode, _StatusString}, _RespHeaders, _RespBody} = Resp} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~tp", [Resp])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_goto(_Name, #{<<"session_id">> := Session, <<"url">> := URL} = _Args, _ExtraParams) ->
     ReqBody = jsx:encode(#{<<"action">> => <<"goto">>,
                            <<"url">> => URL}),
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
- 
-        {ok, {{_HttpVersion, _RespCode, _StatusString}, _RespHeaders, _RespBody} = Resp} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~tp", [Resp])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_wait(_Name, #{<<"session_id">> := Session, <<"selector">> := Selector} = Args, _ExtraParams) ->
     ReqBody = case maps:get(<<"timeout">>, Args, null) of
@@ -456,69 +442,33 @@ http_session_wait(_Name, #{<<"session_id">> := Session, <<"selector">> := Select
                                    <<"timeout">> => Timeout})
              end,
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, RespStatusCode, _StatusString}, _RespHeaders, RespBody}} ->
-            {error, unicode:characters_to_binary(io_lib:format("Request failed:~n~p~n~ts", [RespStatusCode, RespBody]))};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_eval(_Name, #{<<"session_id">> := Session, <<"script">> := Script} = _Args, _ExtraParams) ->
     ReqBody = jsx:encode(#{<<"action">> => <<"evaluate">>,
                            <<"script">> => Script}),
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, _Status, _StatusString}, _RespHeaders, RespBody}} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~ts", [RespBody])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_extract(_Name, #{<<"session_id">> := Session, <<"selector">> := Selector} = _Args, _ExtraParams) ->
     ReqBody = jsx:encode(#{<<"action">> => <<"extract">>,
                            <<"selector">> => Selector}),
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, _Status, _StatusString}, _RespHeaders, RespBody}} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~ts", [RespBody])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_fill(_Name, #{<<"session_id">> := Session, <<"selector">> := Selector, <<"value">> := Value} = _Args, _ExtraParams) ->
     ReqBody = jsx:encode(#{<<"action">> => <<"fill">>,
                            <<"selector">> => Selector,
                            <<"value">> => Value}),
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, _Status, _StatusString}, _RespHeaders, RespBody}} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~ts", [RespBody])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 http_session_screenshot(_Name, #{<<"session_id">> := Session} = Args, ExtraParams) ->
     ExtraArgs = maps:with([<<"selector">>, <<"full_page">>, <<"type">>, <<"quality">>], Args),
     ReqBody = jsx:encode(ExtraArgs#{<<"action">> => <<"screenshot">>}),
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
     case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
+        {ok, {{_, 200, _}, _, RespBody}} ->
             Resp = jsx:decode(RespBody),
             case maps:get(<<"image_data">>, Resp, null) of
                 null ->
@@ -536,12 +486,7 @@ http_session_screenshot(_Name, #{<<"session_id">> := Session} = Args, ExtraParam
                             {error, <<"outside_root">>}
                     end
             end;
-
-        {ok, {{_HttpVersion, _Status, _StatusString}, _RespHeaders, RespBody}} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~ts", [RespBody])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
+        Other -> process_response(Other)
     end.
 
 http_session_click(_Name, #{<<"session_id">> := Session} = Args, _ExtraParams) ->
@@ -550,16 +495,7 @@ http_session_click(_Name, #{<<"session_id">> := Session} = Args, _ExtraParams) -
          <<"post_delay_ms">>, <<"press_delay_ms">>], Args),
     ReqBody = jsx:encode(ExtraArgs#{<<"action">> => <<"click">>}),
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
-    case httpc:request(post, Request, [], [{body_format, binary}]) of
-        {ok, {{_HttpVersion, 200, _StatusString}, _RespHeaders, RespBody}} ->
-            {structured_ok, jsx:decode(RespBody)};
-
-        {ok, {{_HttpVersion, _Status, _StatusString}, _RespHeaders, RespBody}} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~ts", [RespBody])])};
-
-        {error, Reason} ->
-            {error, unicode:characters_to_binary([ <<"Request failed: ">>, io_lib:format("~p", [Reason])])}
-    end.
+    process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
 exec(_Name, #{<<"chdir">> := Path0, <<"command">> :=Command}, ExtraParams) ->
     Root = maps:get(root_dir, ExtraParams),
