@@ -54,10 +54,10 @@ tools_info() ->
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"chdir">>  => #{ type => string, description => <<"The working directory inside the sandbox.">> },
+                        <<"cwd">>     => #{ type => string, description => <<"The working directory inside the sandbox.">> },
                         <<"command">> => #{ type => string, description => <<"The full Bash command to execute (e.g., 'ls -la', 'cat file.txt'). Support pipes and redirections.">> }
                     },
-                    required => [<<"chdir">>, <<"command">>]
+                    required => [<<"cwd">>, <<"command">>]
                 }
              },
            function => fun exec/3
@@ -497,11 +497,21 @@ http_session_click(_Name, #{<<"session_id">> := Session} = Args, _ExtraParams) -
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
     process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
-exec(_Name, #{<<"chdir">> := Path0, <<"command">> :=Command}, ExtraParams) ->
+exec(_Name, #{<<"cwd">> := Path0, <<"command">> :=Command}, ExtraParams) ->
     Root = maps:get(root_dir, ExtraParams),
-    {ok, Output, Code} = mcp_sandbox:run(Root, Path0, Command),
-    logger:info("Exec chdir:~ts~ncommand:~ts~nCode: ~p~nOutput:~n~tp~n", [Path0, Command, Code, Output]),
-    {ok, [#{<<"type">> => <<"text">>, <<"text">> => jsx:encode(#{output => Output, code => Code})}]}.
+    case safe_path(Root, Path0) of
+        {ok, AbsPath} ->
+            case filelib:is_dir(AbsPath) of
+                true ->
+                    {ok, Output, Code} = mcp_sandbox:run(Root, Path0, Command),
+                    logger:info("Exec cwd:~ts~ncommand:~ts~nCode: ~p~nOutput:~n~tp~n", [Path0, Command, Code, Output]),
+                    {ok, [#{<<"type">> => <<"text">>, <<"text">> => jsx:encode(#{output => Output, code => Code})}]};
+                false ->
+                    {error, unicode:characters_to_binary(io_lib:format("Directory does not exist: ~ts", [Path0]))}
+            end;
+        {error, _} ->
+            {error, <<"outside_root">>}
+    end.
 
 
 read_images(_Name, #{<<"paths">> := Paths}, ExtraParams) ->
