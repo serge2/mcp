@@ -18,11 +18,28 @@ schema() ->
     #{
       name        => <<"MCP RAG Server">>,
       version     => <<"0.1.0">>,
-      description => <<"MCP server with RAG (Retrieval-Augmented Generation) tools implemented."
-                       " The main purpose of the RAG server is storing some documents (guides, books, code)."
-                       " LLM can use the documents to analyze or as source of information."
-                       " Also LLM can use the RAG as a long-term storage for generated information that"
-                       " will be useful in future">>,
+      title       => <<"Advanced RAG Knowledge Base">>,
+      instructions => <<"### RAG & KNOWLEDGE MANAGEMENT GUIDELINES:\n\n"
+                        "1. **Proactive Retrieval (CRITICAL)**: You are NOT a closed system. "
+                        "If a task involves specific project rules, technical guides, or unknown "
+                        "operational procedures, you MUST use `search_chunks` BEFORE assuming "
+                        "you know the answer. For complex goals, search RAG for similar past tasks "
+                        "or architectural decisions to ensure consistency.\n\n"
+                        "2. **Search & Context Strategy**: Use `search_chunks` for conceptual queries. "
+                        "If a result is truncated or refers to other sections, you MUST use "
+                        "`get_chunk_neighbors` to get the full context. Never rely on partial data.\n\n"
+                        "3. **Strict Filtering Rule**: Use the `source_type` filter ONLY if you are "
+                        "100% certain the target document has that attribute. If searching for "
+                        "instructions, rules, or guides, DO NOT filter (especially by `web`) — "
+                        "search across ALL sources instead.\n\n"
+                        "4. **Source Type Definitions**:\n"
+                        "   - `file`: Manuals, PDFs, and uploaded guides (Primary for instructions).\n"
+                        "   - `project`: Local source code and technical assets.\n"
+                        "   - `web`: External content previously crawled from the internet.\n"
+                        "   - `LLM`: Saved summaries and strategic decisions from previous sessions.\n\n"
+                        "5. **Memory Commitment**: After solving complex problems or making "
+                        "strategic decisions, you MUST use `add_document` to save a summary "
+                        "to the `LLM` source. This is vital for long-term session continuity.">>,
       tools       => tools_info(),
       resources   => resources_info()
      }.
@@ -32,21 +49,26 @@ tools_info() ->
     [
         #{ definition =>
              #{ name        => <<"search_chunks">>,
-                description => <<"Search text chunks in the RAG. The API searches for chunks"
-                                    " matching the provided text. Optional filters include"
-                                    " document ID and source type (file, web, LLM, project)."
-                                    " Returns a list of relevant text chunks. It's possible to increase"
-                                    " the number of returned chunks by setting the limit parameter.">>,
+                description => <<"Performs a semantic vector search across the knowledge base. "
+                                 "Use this to find relevant information by meaning, not just keywords. "
+                                 "Higher 'limit' (e.g., 15-20) is better for complex technical tasks.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"text">>   => #{ type => string, description => <<"The text to search for.">> },
-                        <<"limit">>  => #{ type => integer, description => <<"The maximum number of chunks in the response.">>,
+                        <<"text">>   => #{ type => string, description => <<"The search query in natural language.">> },
+                        <<"max_distance">> => #{ type => number, minimum => 0.0, maximum => 2.0, default => 0.49,
+                                                 description => <<"Cosine distance threshold. Lower (0.3-0.4) for strict matches, higher (0.5-0.6) for broad conceptual matches.">>},
+                        <<"limit">>  => #{ type => integer, description => <<"Maximum chunks to return. Use higher values for better coverage.">>,
                                                 default => 10 },
-                        <<"doc_id">> => #{ type => integer, description => <<"Optional document ID to filter chunks.">> },
-                        <<"source">> => #{ type => string, description => <<"Optional source to filter chunks.">>,
+                        <<"doc_id">> => #{ type => integer, description => <<"Filter results to a specific document ID.">> },
+                        <<"source">> => #{ type => string, 
+                                                description => <<"Filter by content origin: "
+                                                                 "'file' (general docs), "
+                                                                 "'web' (online resources), "
+                                                                 "'LLM' (previously stored assistant summaries/logic), "
+                                                                 "'project' (source code).">>,
                                                 enum => [<<"file">>, <<"web">>, <<"LLM">>, <<"project">>] },
-                        <<"project_name">> => #{ type => string, description => <<"Optional project name to filter chunks.">> }
+                        <<"project_name">> => #{ type => string, description => <<"Search only within a specific project.">> }
                     },
                     required => [<<"text">>]
                 },
@@ -58,23 +80,23 @@ tools_info() ->
                             items => #{
                                 type => object,
                                 properties => #{
-                                    <<"content">> => #{ type => string, description => <<"The text content of the chunk.">> },
-                                    <<"content_type">> => #{ type => string, description => <<"The MIME type of the content.">> },
-                                    <<"distance">> => #{ type => number, description => <<"The distance metric indicating relevance.">> },
-                                    <<"doc_id">> => #{ type => integer, description => <<"The ID of the document the chunk belongs to.">> },
-                                    <<"filename">> => #{ type => string, description => <<"The filename from which the chunk was extracted.">> },
-                                    <<"id">> => #{ type => integer, description => <<"The unique ID of the chunk.">> },
-                                    <<"idx">> => #{ type => integer, description => <<"The index of the chunk within the document.">> },
-                                    <<"source">> => #{ type => string, description => <<"The source of the chunk (e.g., file, web, LLM).">> },
-                                    <<"updated_at">> => #{ type => string, description => <<"The timestamp when the chunk was last updated.">> },
-                                    <<"url">> => #{ type => [string, null], description => <<"The URL associated with the chunk, if any.">> },
-                                    <<"project_name">> => #{ type => [string, null], description => <<"The name of the project the chunk is associated with.">> },
+                                    <<"content">> => #{ type => string, description => <<"Text fragment content.">> },
+                                    <<"content_type">> => #{ type => string, description => <<"MIME type.">> },
+                                    <<"distance">> => #{ type => number, description => <<"Relevance score (lower is better).">> },
+                                    <<"doc_id">> => #{ type => integer, description => <<"Parent document ID.">> },
+                                    <<"filename">> => #{ type => string, description => <<"Source filename.">> },
+                                    <<"id">> => #{ type => integer, description => <<"The unique identifier of this chunk. Use this value as 'chunk_id' when calling get_chunk_neighbors.">> },
+                                    <<"idx">> => #{ type => integer, description => <<"Position index in document.">> },
+                                    <<"source">> => #{ type => string, description => <<"Origin source.">> },
+                                    <<"updated_at">> => #{ type => string, description => <<"Last update timestamp.">> },
+                                    <<"url">> => #{ type => [string, <<"null">>], description => <<"Source URL if applicable.">> },
+                                    <<"project_name">> => #{ type => [string, <<"null">>], description => <<"Associated project.">> },
                                     <<"doc_total_chunks">> => #{
                                         type => integer, 
-                                        description => <<"Total number of chunks in the document corresponding to the retrieved chunks. (Useful for range calculations).">>}
+                                        description => <<"Total chunks in this document. Compare with 'idx' to see how deep you are.">>}
                                 }
                             },
-                            description => <<"List of matching text chunks with their details.">>
+                            description => <<"Array of relevant fragments.">>
                         }
                     }
                 }
@@ -84,20 +106,21 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"get_chunk_neighbors">>,
-                description => <<"Retrieves a specified chunk and an optional number of adjacent chunks (neighbors) before and after it.">>,
+                description => <<"MANDATORY for code analysis. Retrieves chunks immediately preceding and following a specific chunk. "
+                                 "Use this whenever a code block or text seems cut off to see the full implementation or logic.">>,
                 inputSchema => #{
                     type => object,
                     properties => #{
                             <<"chunk_id">> => #{
                                 type => integer,
-                                description => <<"The **ID** of the **central chunk** to retrieve and find neighbors for.">> },
+                                description => <<"The ID of the chunk to expand context from.">> },
                             <<"max_succeeding_chunks">> => #{
                                 type => integer,
-                                description => <<"The maximum **non-negative count** of chunks immediately **following** the central chunk to include.">>,
+                                description => <<"How many chunks to read AFTER the target chunk. Default is 1.">>,
                                 default => 1 },
                             <<"max_preceding_chunks">> => #{
                                 type => integer,
-                                description => <<"The maximum **non-negative count** of chunks immediately **preceding** the central chunk to include.">>,
+                                description => <<"How many chunks to read BEFORE the target chunk. Default is 1.">>,
                                 default => 1 }
                     },
                     required => [<<"chunk_id">>]
@@ -108,16 +131,14 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"add_document">>,
-                description => <<"Store a text document to the RAG. The document will be chunked"
-                                    " and indexed for future retrieval. The source of the document"
-                                    " will be \"LLM\". The markdown format is preferred for better chunking."
-                                    " It's recommended to add to the document some metadata: Date/time of"
-                                    " creation, document name or short description.">>,
+                description => <<"Saves a new document to the RAG. Use this to 'remember' important summaries, "
+                                 "API specifications, or architectural decisions made during the conversation. "
+                                 "Format: Markdown. Always include a descriptive filename. Source is automatically set to 'LLM'.">>,
                 inputSchema => #{
                     type => object,
                     properties => #{
-                            <<"text">>      => #{ type => string, description => <<"The content of the document">> },
-                            <<"filename">>  => #{ type => string, description => <<"The optional filename of the document">>}
+                            <<"text">>      => #{ type => string, description => <<"The content to be stored. Use Markdown.">> },
+                            <<"filename">>  => #{ type => string, description => <<"Descriptive name for the entry (e.g., 'auth-logic-summary.md').">>}
                     },
                     required => [<<"text">>, <<"filename">>]
                 }
@@ -127,14 +148,14 @@ tools_info() ->
 
         #{ definition => 
              #{ name => <<"get_project_files_list">>,
-                description => <<"Get the list of files associated with a specific project."
-                                    " A project_id or project_name should be provided. If not - all documents"
-                                    " that not related to any document will be returned">>,
+                description => <<"Lists all files within a project. Use this as your FIRST STEP to understand "
+                                 "what files are available for analysis. Provides doc_id for further content retrieval. "
+                                 "MANDATORY: You must provide either 'project_id' or 'project_name'.">>,
                 inputSchema => #{
                     type => object,
                     properties => #{
-                            <<"project_id">> => #{ type => integer, description => <<"The ID of the project to retrieve files for.">> },
-                            <<"project_name">> => #{ type => string, description => <<"The name of the project to retrieve files for.">> }
+                            <<"project_id">> => #{ type => integer, description => <<"The numeric project ID.">> },
+                            <<"project_name">> => #{ type => string, description => <<"The project name string.">> }
                     }
                 }
              },
@@ -143,26 +164,25 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"get_document_content">>,
-                description => <<"Retrieves a structural summary of the document, returned as a list of selected chunks. "
-                                    "This method avoids full document reconstruction and is designed to provide "
-                                    "essential structural context (imports, headers, footer functions) within the size limit. "
-                                    "The result includes the N first and M last chunks, which may contain overlap (ignored by LLM).">>,
+                description => <<"Provides a structural 'sandwich' overview of a document: the very beginning and the very end. "
+                                 "Perfect for checking file imports, class definitions at the top, or export logic at the bottom. "
+                                 "Does not return the whole file to save context window.">>,
                 inputSchema => #{
                     type => object,
                     properties => #{
                             <<"doc_id">> => #{
                                 type => integer,
-                                description => <<"The ID of the document to retrieve.">>
+                                description => <<"The document ID to inspect.">>
                             },
                             
                             <<"first_chunks">> => #{ 
                                 type => integer, 
-                                description => <<"The number of chunks to retrieve from the beginning of the document (N).">>, 
+                                description => <<"Number of chunks to read from the top (usually 3-5).">>, 
                                 default => 3 
                             },
                             <<"last_chunks">> => #{ 
                                 type => integer, 
-                                description => <<"The number of chunks to retrieve from the end of the document (M).">>, 
+                                description => <<"Number of chunks to read from the bottom (usually 2-3).">>, 
                                 default => 2
                             }
                     },
@@ -177,9 +197,9 @@ tools_info() ->
                                         properties => #{ <<"id">> => #{ type => integer },
                                                         <<"idx">> => #{ type => integer },
                                                         <<"content">> => #{ type => string } } }, 
-                            description => <<"List of N starting chunks and M ending chunks, ordered by index. Overlap must be ignored by the LLM.">> 
+                            description => <<"Ordered list of starting and ending chunks. Middle part is omitted.">> 
                         },
-                        <<"message">> => #{ type => string, description => <<"A status message indicating how many chunks were skipped in the middle.">> }
+                        <<"message">> => #{ type => string, description => <<"Information about the omitted middle section.">> }
                     }
                 }
            },
@@ -201,6 +221,7 @@ resources_info() ->
 
 search_chunks(_Name, Args, #{rag_api_key := RagApiKey, rag_url := RagUrl}) ->
     Text = maps:get(<<"text">>, Args),
+    MaxDistance = maps:get(<<"max_distance">>, Args, 0.49),
     Limit = maps:get(<<"limit">>, Args, 10),
     DocId = maps:get(<<"doc_id">>, Args, null),
     Source = maps:get(<<"source">>, Args, null),
@@ -209,6 +230,7 @@ search_chunks(_Name, Args, #{rag_api_key := RagApiKey, rag_url := RagUrl}) ->
                [{"authorization", ["Bearer ", RagApiKey]}], 
                "application/json",
                jsx:encode(#{<<"content">> => Text,
+                            <<"max_distance">> => MaxDistance,
                             <<"limit">> => Limit,
                             <<"doc_id">> => DocId,
                             <<"source">> => Source})},

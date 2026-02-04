@@ -12,27 +12,50 @@ start() ->
 
 schema() ->
     #{
-      name => <<"MCP Server">>,
+      name => <<"Core Systems MCP Server">>,
       version => <<"0.1.0">>,
-      description => <<"MCP server with linux console tools (sandboxed) and with a headless browser">>,
+      title => <<"System & Browser Automation Server">>,
+      instructions => <<"### SYSTEM & BROWSER AUTOMATION GUIDELINES:\n\n"
+                        "1. **Sandboxed Shell (`exec`)**:\n"
+                        "   - Restricted Ubuntu. Non-interactive only.\n"
+                        "   - **Files**: Use heredocs (`cat << 'EOF' > file`) for creation; ALWAYS use `patch` "
+                        "for editing (unified diff via stdin) to avoid rewriting entire files.\n\n"
+                        "2. **Web Browsing & Extraction (STRICT RULES)**:\n"
+                        "   - **Eval Syntax (CRITICAL)**: In `http_session_eval`, DO NOT use `return` at the top level. "
+                        "Simply write the expression (e.g., `document.documentElement.outerHTML.slice(0, 10000)`). "
+                        "For complex logic, use IIFE: `(() => { const x = document.title; return x; })()`.\n"
+                        "   - **Discovery Phase**: Use `document.documentElement.outerHTML` via `eval` to identify "
+                        "page structure, links (href), and attributes that `innerText` hides.\n"
+                        "   - **Wait for Load**: Always use `http_session_wait` for 'body' or a specific "
+                        "element after navigation.\n"
+                        "   - **Anti-Failure Strategy**: If `extract` returns empty results, DO NOT assume "
+                        "protection. Assume your selectors are wrong. Re-verify with a fresh `outerHTML` slice.\n\n"
+                        "3. **Large Content Handling (CRITICAL)**:\n"
+                        "   - **Context Safety**: `outerHTML` is huge. DO NOT dump the entire content at once; "
+                        "this will overflow the context window and cause goal loss.\n"
+                        "   - **Iterative Strategy**: Process the page in chunks. Use JS `.slice()` via `eval` "
+                        "to extract segments (e.g., 0-10000), analyze structure, save key data to a file, "
+                        "then move to the next slice (10000-20000).\n"
+                        "   - **State Management**: Keep track of processed segments and findings in a "
+                        "local file or your reasoning to ensure full coverage without redundancy.\n\n"
+                        "4. **Image & Vision**:\n"
+                        "   - Only use `read_images` or screenshots if you have vision capabilities. "
+                        "Otherwise, rely strictly on HTML/text dumps via `eval` and chunking.">>,
       tools => tools_info()
      }.
+
 
 
 tools_info() ->
     [
         #{ definition =>
              #{ name        => <<"exec">>,
-                description => <<"Run a command in a sandbox. The environment is Ubuntu.\n"
-                                    "Runs the supplied string with bash -c internally; therefore the command "
-                                    "argument must be a complete Bash command line as you would type it in a shell, "
-                                    "including any redirections, pipelines, or other shell syntax. Do not wrap "
-                                    "the whole command in an extra sh -c …; just provide the exact Bash statement to be executed.">>,
+                description => <<"Run a command in a restricted Ubuntu sandbox. Use for file operations, system tasks, or running scripts. Environment is non-interactive.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"chdir">>  => #{ type => string, description => <<"The work directory">> },
-                        <<"command">> => #{ type => string, description => <<"The command to run">> }
+                        <<"chdir">>  => #{ type => string, description => <<"The working directory inside the sandbox.">> },
+                        <<"command">> => #{ type => string, description => <<"The full Bash command to execute (e.g., 'ls -la', 'cat file.txt'). Support pipes and redirections.">> }
                     },
                     required => [<<"chdir">>, <<"command">>]
                 }
@@ -42,7 +65,7 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"sys_datetime">>,
-                description => <<"Get current local time, UTC time and Time-zone">>,
+                description => <<"Get the current system local time, UTC time, and timezone information.">>,
                 inputSchema => #{ type => object, properties => #{} }
              },
            function    => fun sys_datetime/3
@@ -50,25 +73,25 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_call">>,
-                description => <<"Make arbitrary HTTP-calls to analyze sites and fetch data from Internet">>,
+                description => <<"Make standard HTTP requests to fetch data or interact with APIs. Best for direct data retrieval.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"method">>  => #{ type => string, default => <<"GET">>, description => <<"A HTTP method">> },
-                        <<"url">>     => #{ type => string, description => <<"An escaped HTTP URL">> },
-                        <<"headers">> => #{ type => object, default => #{}, description => <<"The Request's HTTP headers">> },
-                        <<"body">>    => #{ type => string, description => <<"The Request's body, if any">> }
+                        <<"method">>  => #{ type => string, default => <<"GET">>, description => <<"HTTP method (GET, POST, PUT, DELETE, etc.)">> },
+                        <<"url">>     => #{ type => string, description => <<"Fully qualified URL.">> },
+                        <<"headers">> => #{ type => object, default => #{}, description => <<"HTTP request headers.">> },
+                        <<"body">>    => #{ type => string, description => <<"Request payload for POST/PUT/PATCH.">> }
                     },
                     required => [<<"url">>]
                 },
                 outputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"http_version">> => #{ type => string,  description => <<"The Response's HTTP version">> },
-                        <<"status_code">>  => #{ type => integer, description => <<"The Response's status code">> },
-                        <<"status_string">>=> #{ type => string,  description => <<"The Response's status string">> },
-                        <<"headers">>      => #{ type => object,  description => <<"The Response's HTTP headers">> },
-                        <<"body">>         => #{ type => string,  description => <<"The Response's body, if any">> }
+                        <<"http_version">> => #{ type => string,  description => <<"Response HTTP version">> },
+                        <<"status_code">>  => #{ type => integer, description => <<"HTTP response status code">> },
+                        <<"status_string">>=> #{ type => string,  description => <<"HTTP status message">> },
+                        <<"headers">>      => #{ type => object,  description => <<"Response headers">> },
+                        <<"body">>         => #{ type => string,  description => <<"Response body content">> }
                     },
                     required => [<<"http_version">>, <<"status_code">>, <<"status_string">>, <<"headers">>]
                 }
@@ -78,25 +101,25 @@ tools_info() ->
 
         #{ definition => 
              #{ name        => <<"http_call_f">>,
-                description => <<"Make arbitrary HTTP-calls to analyze sites and fetch data from Internet. The response body is saved to a file.">>,
+                description => <<"Make HTTP requests and save the response body directly to a file in the sandbox. Ideal for downloading large files or binaries.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"method">>  => #{ type => string, default => <<"GET">>, description => <<"A HTTP method">> },
-                        <<"url">>     => #{ type => string, description => <<"An escaped HTTP URL">> },
-                        <<"headers">> => #{ type => object, default => #{}, description => <<"The Request's HTTP headers">> },
-                        <<"body">>    => #{ type => string, description => <<"The Request's body, if any">> },
-                        <<"path">>    => #{ type => string, description => <<"The file path to save response body">> }
+                        <<"method">>  => #{ type => string, default => <<"GET">>, description => <<"HTTP method">> },
+                        <<"url">>     => #{ type => string, description => <<"Target URL">> },
+                        <<"headers">> => #{ type => object, default => #{}, description => <<"Request headers">> },
+                        <<"body">>    => #{ type => string, description => <<"Request body">> },
+                        <<"path">>    => #{ type => string, description => <<"Relative sandbox path where the body will be saved.">> }
                     },
                     required => [<<"url">>, <<"path">>]
                 },
                 outputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"http_version">> => #{ type => string,  description => <<"The Response's HTTP version">> },
-                        <<"status_code">>  => #{ type => integer, description => <<"The Response's status code">> },
-                        <<"status_string">>=> #{ type => string,  description => <<"The Response's status string">> },
-                        <<"headers">>      => #{ type => object,  description => <<"The Response's HTTP headers">> }
+                        <<"http_version">> => #{ type => string,  description => <<"Response HTTP version">> },
+                        <<"status_code">>  => #{ type => integer, description => <<"HTTP response status code">> },
+                        <<"status_string">>=> #{ type => string,  description => <<"HTTP status message">> },
+                        <<"headers">>      => #{ type => object,  description => <<"Response headers">> }
                     },
                     required => [<<"http_version">>, <<"status_code">>, <<"status_string">>, <<"headers">>]
                 }
@@ -106,15 +129,15 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_create">>,
-                description => <<"Create a session to connect to Internet site, using a headless browser">>,
+                description => <<"Start a new headless browser session. Returns a session_id required for all other http_session tools.">>,
                 inputSchema => #{
                     type => object,
                     properties => #{
                         <<"width">>        => #{ type => integer, description => <<"Viewport width in pixels">>, default => 1280 },
                         <<"height">>       => #{ type => integer, description => <<"Viewport height in pixels">>, default => 800 },
-                        <<"mobile">>       => #{ type => boolean, description => <<"Emulate mobile device">>, default => false },
-                        <<"locale">>       => #{ type => string,  description => <<"The browser locale">>, default => <<"en_US">> },
-                        <<"idle_timeout">> => #{ type => integer, description => <<"Idle timeout in seconds">>, default => 600 }
+                        <<"mobile">>       => #{ type => boolean, description => <<"Emulate a mobile device view">>, default => false },
+                        <<"locale">>       => #{ type => string,  description => <<"Browser locale setting">>, default => <<"en_US">> },
+                        <<"idle_timeout">> => #{ type => integer, description => <<"Session auto-close timeout in seconds">>, default => 600 }
                     }
                 }
              },
@@ -123,11 +146,11 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_close">>,
-                description => <<"Close the session to Internet site in the headless browser">>,
+                description => <<"Terminate a headless browser session and release its resources.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string, description => <<"The session id">> }
+                        <<"session_id">> => #{ type => string, description => <<"The active session ID to close.">> }
                     },
                     required => [<<"session_id">>]
                 }
@@ -137,12 +160,12 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_goto">>,
-                description => <<"Open the Internet site, using a headless browser">>,
+                description => <<"Navigate the browser to a specific URL.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string, description => <<"The session id">> },
-                        <<"url">>        => #{ type => string, description => <<"The URL of the site">> }
+                        <<"session_id">> => #{ type => string, description => <<"Active session ID">> },
+                        <<"url">>        => #{ type => string, description => <<"Target URL to load.">> }
                     },
                     required => [<<"session_id">>, <<"url">>]
                 }
@@ -152,13 +175,13 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_wait">>,
-                description => <<"Wait for an element on the page using headless browser">>,
+                description => <<"Wait until a specific element matching the CSS selector is present on the page.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string,  description => <<"The session id">> },
-                        <<"selector">>   => #{ type => string,  description => <<"CSS selector of element">> },
-                        <<"timeout">>    => #{ type => integer, description => <<"Timeout in ms">>, default => 30000 }
+                        <<"session_id">> => #{ type => string,  description => <<"Active session ID">> },
+                        <<"selector">>   => #{ type => string,  description => <<"CSS selector (e.g., 'div.result', '#login-btn')">> },
+                        <<"timeout">>    => #{ type => integer, description => <<"Max wait time in milliseconds (default 30000)">>, default => 30000 }
                     },
                     required => [<<"session_id">>, <<"selector">>]
                 }
@@ -168,12 +191,12 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_eval">>,
-                description => <<"Evaluate a javascript on the site, using a headless browser">>,
+                description => <<"Execute JavaScript in the page context. Write the expression directly for simple values or use IIFE for logic. No 'return' at top level.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string, description => <<"The session id">> },
-                        <<"script">>     => #{ type => string, description => <<"The script (javascript)">> }
+                        <<"session_id">> => #{ type => string, description => <<"Active session ID">> },
+                        <<"script">>     => #{ type => string, description => <<"JS code to run.">> }
                     },
                     required => [<<"session_id">>, <<"script">>]
                 }
@@ -183,12 +206,12 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_extract">>,
-                description => <<"Extract a text (inner_text) of elements on the site, using a headless browser">>,
+                description => <<"Extract text content (inner_text) from all elements matching the given CSS selector.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string, description => <<"The session id">> },
-                        <<"selector">>   => #{ type => string, description => <<"CSS selector of element">> }
+                        <<"session_id">> => #{ type => string, description => <<"Active session ID">> },
+                        <<"selector">>   => #{ type => string, description => <<"CSS selector for elements to extract text from.">> }
                     },
                     required => [<<"session_id">>, <<"selector">>]
                 }
@@ -198,13 +221,13 @@ tools_info() ->
 
        #{ definition =>
              #{ name        => <<"http_session_fill">>,
-                description => <<"Fill a field on the site, using a headless browser">>,
+                description => <<"Enter text into an input field or form element.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string, description => <<"The session id">> },
-                        <<"selector">>   => #{ type => string, description => <<"CSS selector of element">> },
-                        <<"value">>      => #{ type => string, description => <<"The value to fill">> }
+                        <<"session_id">> => #{ type => string, description => <<"Active session ID">> },
+                        <<"selector">>   => #{ type => string, description => <<"CSS selector for the target input.">> },
+                        <<"value">>      => #{ type => string, description => <<"The text to be entered.">> }
                     },
                     required => [<<"session_id">>, <<"selector">>, <<"value">>]
                 }
@@ -215,16 +238,16 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_screenshot">>,
-                description => <<"Make a screenshot of the headless browser page">>,
+                description => <<"Capture an image of the current page or a specific element. Saves to sandbox.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">> => #{ type => string, description => <<"The session id">> },
-                        <<"selector">>   => #{ type => string, description => <<"The element for screenshot">>},
-                        <<"full_page">>  => #{ type => boolean, description => <<"If true then a full page screenshot will be done">>},
-                        <<"type">>       => #{ type => string, enum => [<<"png">>, <<"jpeg">>], description => <<"The image type: png or jpeg">>},
-                        <<"quality">>    => #{ type => integer, min => 1, max => 100, description => <<"The image quality for jpeg (1-100)">>},
-                        <<"path">>       => #{ type => string, description => <<"The file to save the screenshot">> }
+                        <<"session_id">> => #{ type => string, description => <<"Active session ID">> },
+                        <<"selector">>   => #{ type => string, description => <<"Optional selector to capture only one element.">>},
+                        <<"full_page">>  => #{ type => boolean, description => <<"Capture the whole scrollable page if true.">>},
+                        <<"type">>       => #{ type => string, enum => [<<"png">>, <<"jpeg">>], description => <<"Format: png or jpeg">>},
+                        <<"quality">>    => #{ type => integer, min => 1, max => 100, description => <<"Quality for jpeg (1-100)">>},
+                        <<"path">>       => #{ type => string, description => <<"Sandbox file path to save the image (e.g., 'shot.png').">> }
                     },
                     required => [<<"session_id">>, <<"path">>]
                 }
@@ -234,21 +257,21 @@ tools_info() ->
 
         #{ definition =>
              #{ name        => <<"http_session_click">>,
-                description => <<"Make a click on an element in the headless browser page">>,
+                description => <<"Click on a page element. Supports human-like mouse emulation.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"session_id">>     => #{ type => string, description => <<"The session id">> },
-                        <<"selector">>       => #{ type => string, description => <<"The element for click">>},
-                        <<"human">>          => #{ type => boolean, description => <<"If true then emulate human behavior">>, default => false},
-                        <<"button">>         => #{ type => string, enum => [<<"left">>, <<"right">>], description => <<"The mouse button to use">>, default => <<"left">>},
-                        <<"click_count">>    => #{ type => integer, min => 1, max => 5, description => <<"Number of clicks">>, default => 1},
-                        <<"hover_before">>   => #{ type => boolean, description => <<"Initiate a hover event before the click">>, default => true},
-                        <<"move_duration_ms">> => #{ type => integer, description => <<"move_duration_ms">> },
-                        <<"move_steps">>     => #{ type => integer, description => <<"move_steps">> },
-                        <<"pre_delay_ms">>   => #{ type => integer, description => <<"pre_delay_ms">> },
-                        <<"post_delay_ms">>  => #{ type => integer, description => <<"post_delay_ms">> },
-                        <<"press_delay_ms">> => #{ type => integer, description => <<"press_delay_ms">> }
+                        <<"session_id">>     => #{ type => string, description => <<"Active session ID">> },
+                        <<"selector">>       => #{ type => string, description => <<"CSS selector for the element to click.">>},
+                        <<"human">>          => #{ type => boolean, description => <<"Emulate human behavior if true.">>, default => false},
+                        <<"button">>         => #{ type => string, enum => [<<"left">>, <<"right">>], description => <<"Mouse button.">>, default => <<"left">>},
+                        <<"click_count">>    => #{ type => integer, min => 1, max => 5, description => <<"Number of clicks.">>, default => 1},
+                        <<"hover_before">>   => #{ type => boolean, description => <<"Perform hover before clicking.">>, default => true},
+                        <<"move_duration_ms">> => #{ type => integer, description => <<"Duration of mouse move in ms.">> },
+                        <<"move_steps">>     => #{ type => integer, description => <<"Steps in move animation.">> },
+                        <<"pre_delay_ms">>   => #{ type => integer, description => <<"Delay before action.">> },
+                        <<"post_delay_ms">>  => #{ type => integer, description => <<"Delay after action.">> },
+                        <<"press_delay_ms">> => #{ type => integer, description => <<"Duration of click press.">> }
                     },
                     required => [<<"session_id">>, <<"selector">>]
                 }
@@ -257,18 +280,22 @@ tools_info() ->
          },
 
         #{ definition =>
-             #{ name => <<"read_image">>,
-                description => <<"Read an image-file">>,
+             #{ name => <<"read_images">>,
+                description => <<"Load image files from the sandbox for processing. Use this when you need to 'see' an image you previously saved.">>,
                 inputSchema => #{
                     type => object,
                     properties => #{
-                        <<"path">> => #{ type => string, description => <<"The path to an image-file.">> }
+                        <<"paths">> => #{
+                             type => array,
+                             items => #{ type => string, description => <<"List of relative paths to image files.">> }
+                        }
                     },
-                    required => [<<"path">>]
+                    required => [<<"paths">>]
                 }
              },
-            function => fun read_image/3    
+            function => fun read_images/3
          }
+
 
     ].
 
@@ -541,14 +568,34 @@ exec(_Name, #{<<"chdir">> := Path0, <<"command">> :=Command}, ExtraParams) ->
     {ok, [#{<<"type">> => <<"text">>, <<"text">> => jsx:encode(#{output => Output, code => Code})}]}.
 
 
-read_image(_Name, #{<<"path">> := Path0}, ExtraParams) ->
+read_images(_Name, #{<<"paths">> := Paths}, ExtraParams) ->
     Root = maps:get(root_dir, ExtraParams),
-    case safe_path(Root, Path0) of
+    F = fun(_, {error, _} = E) ->
+                E;
+           (P, {ok, Acc}) ->
+                case read_image_file(Root, P) of
+                    {ok, Img} ->
+                        {ok, [Img | Acc]};
+                    {error, Reason} ->
+                        {error, Reason}
+                end
+        end,
+    case lists:foldl(F, {ok, []}, Paths) of
+        {ok, GoodPathes} ->
+            Res = [#{<<"type">> => <<"image">>, <<"data">> => ImgData, <<"mimeType">> => filename_to_mime(Abs)}
+                || {Abs, ImgData} <- GoodPathes],
+            {ok, Res};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+read_image_file(Root, Path) ->
+    case safe_path(Root, Path) of
         {ok, Abs} ->
             case file:read_file(Abs) of
                 {ok, Data} ->
                     Encoded = base64:encode(Data),
-                    {ok, [#{<<"type">> => <<"image">>, <<"data">> => Encoded, <<"mimeType">> => filename_to_mime(Abs)}]};
+                    {ok, {Abs, Encoded}};
                 {error, Reason} ->
                     {error, unicode:characters_to_binary([ <<"File read error: ">>, io_lib:format("~p", [Reason])])}
             end;
@@ -557,18 +604,9 @@ read_image(_Name, #{<<"path">> := Path0}, ExtraParams) ->
     end.
 
 
-
-
 %%--------------------------------------------------------------------
 %% @doc
 %%   Проверяет, что пользовательский путь находится внутри заданного корня.
-%%
-%%   Возвращает {ok, AbsPath} если всё ОК,
-%%            {error, Reason} иначе.
-%%
-%%   Пример:
-%%       Root = "/var/www/public",
-%%       safe_path(Root, "../etc/passwd") -> {error, outside_root}
 %%--------------------------------------------------------------------
 -spec safe_path(Root::string(), RelPath::string()) ->
           {ok, AbsPath::string()} | {error, outside_root}.
