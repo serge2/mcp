@@ -54,10 +54,10 @@ tools_info() ->
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"cwd">>     => #{ type => string, description => <<"The working directory inside the sandbox.">> },
+                        <<"cwd">>     => #{ type => string, description => <<"The working directory inside the sandbox.">>, default => <<"/">>},
                         <<"command">> => #{ type => string, description => <<"The full Bash command to execute (e.g., 'ls -la', 'cat file.txt'). Support pipes and redirections.">> }
                     },
-                    required => [<<"cwd">>, <<"command">>]
+                    required => [<<"command">>]
                 }
              },
            function => fun exec/3
@@ -497,7 +497,8 @@ http_session_click(_Name, #{<<"session_id">> := Session} = Args, _ExtraParams) -
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
     process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
-exec(_Name, #{<<"cwd">> := Path0, <<"command">> :=Command}, ExtraParams) ->
+exec(_Name, #{<<"command">> :=Command} = Args, ExtraParams) ->
+    Path0 = maps:get(<<"cwd">>, Args, <<"/">>),
     Root = maps:get(root_dir, ExtraParams),
     case safe_path(Root, Path0) of
         {ok, AbsPath} ->
