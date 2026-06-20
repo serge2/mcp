@@ -1,4 +1,5 @@
 _build/
+logs/
 rebar.lock
 config/*.pem
 config/sys.config
