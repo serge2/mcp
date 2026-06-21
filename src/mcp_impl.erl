@@ -18,6 +18,10 @@ schema() ->
       instructions => <<"### SYSTEM & BROWSER AUTOMATION GUIDELINES:\n\n"
                         "1. **Sandboxed Shell (`exec`)**:\n"
                         "   - Restricted Ubuntu. Non-interactive only.\n"
+                        "   - BEFORE running any CLI commands, you MUST create an environment session using `env_session_start`.\n"
+                        "   - ALWAYS provide the received `session_id` to subsequent `exec` and `env_session_close` tools.\n"
+                        "   - The environment is persistent across your calls within the same session. You can install packages (e.g., `apt update && apt install -y package`) and they will remain available.\n"
+                        "   - ALWAYS close your environment session using `env_session_close` when your task is complete to release host resources.\n"
                         "   - **Files**: Use heredocs (`cat << 'EOF' > file`) for creation; ALWAYS use `patch` "
                         "for editing (unified diff via stdin) to avoid rewriting entire files.\n\n"
                         "2. **Web Browsing & Extraction (STRICT RULES)**:\n"
@@ -49,15 +53,38 @@ schema() ->
 tools_info() ->
     [
         #{ definition =>
+             #{ name        => <<"env_session_start">>,
+                description => <<"Start a persistent, stateful sandbox environment session. Returns a session_id required for running CLI commands.">>,
+                inputSchema => #{ type => object, properties => #{} }
+             },
+           function => fun env_session_start/3
+        },
+
+        #{ definition =>
+             #{ name        => <<"env_session_close">>,
+                description => <<"Close the active environment session and completely destroy its container. Call this when you finish your work.">>,
+                inputSchema => #{
+                    type       => object,
+                    properties => #{
+                        <<"session_id">> => #{ type => string, description => <<"The active environment session ID to destroy.">> }
+                    },
+                    required => [<<"session_id">>]
+                }
+             },
+           function => fun env_session_close/3
+        },
+
+        #{ definition =>
              #{ name        => <<"exec">>,
                 description => <<"Run a command in a restricted Ubuntu sandbox. Use for file operations, system tasks, or running scripts. Environment is non-interactive.">>,
                 inputSchema => #{
                     type       => object,
                     properties => #{
-                        <<"cwd">>     => #{ type => string, description => <<"The working directory inside the sandbox.">>, default => <<"/">>},
+                        <<"session_id">> => #{ type => string, description => <<"The active environment session ID.">> },
+                        <<"cwd">>     => #{ type => string, description => <<"The working directory inside the sandbox.">>, default => <<"/workspace">>},
                         <<"command">> => #{ type => string, description => <<"The full Bash command to execute (e.g., 'ls -la', 'cat file.txt'). Support pipes and redirections.">> }
                     },
-                    required => [<<"command">>]
+                    required => [<<"session_id">>, <<"command">>]
                 }
              },
            function => fun exec/3
@@ -497,18 +524,36 @@ http_session_click(_Name, #{<<"session_id">> := Session} = Args, _ExtraParams) -
     Request = {<<"http://localhost:8000/session/", Session/binary, "/run">>, [], "application/json", ReqBody},
     process_response(httpc:request(post, Request, [], [{body_format, binary}])).
 
-exec(_Name, #{<<"command">> :=Command} = Args, ExtraParams) ->
-    Path0 = maps:get(<<"cwd">>, Args, <<"/">>),
+env_session_start(_Name, _Args, ExtraParams) ->
+    Root = maps:get(root_dir, ExtraParams),
+    SessionId = integer_to_list(binary:decode_unsigned(crypto:strong_rand_bytes(6)), 36),
+    SessionIdBin = list_to_binary(string:lowercase(SessionId)),
+    case mcp_sandbox_docker:start_session(Root, SessionIdBin) of
+        ok ->
+            {structured_ok, #{<<"session_id">> => SessionIdBin, <<"status">> => <<"started">>}};
+        {error, Reason} ->
+            {error, unicode:characters_to_binary([<<"Failed to start env session: ">>, Reason])}
+    end.
+
+env_session_close(_Name, #{<<"session_id">> := SessionId}, _ExtraParams) ->
+    case mcp_sandbox_docker:close_session(SessionId) of
+        ok ->
+            {structured_ok, #{<<"session_id">> => SessionId, <<"status">> => <<"destroyed">>}};
+        {error, Reason} ->
+            {error, unicode:characters_to_binary([<<"Failed to close env session: ">>, Reason])}
+    end.
+
+exec(_Name, #{<<"session_id">> := SessionId, <<"command">> :=Command} = Args, ExtraParams) ->
+    Path0 = maps:get(<<"cwd">>, Args, <<"/workspace">>),
     Root = maps:get(root_dir, ExtraParams),
     case safe_path(Root, Path0) of
         {ok, AbsPath} ->
-            case filelib:is_dir(AbsPath) of
-                true ->
-                    {ok, Output, Code} = mcp_sandbox:run(Root, Path0, Command),
+            case mcp_sandbox_docker:run_in_session(SessionId, Path0, Command, Root) of
+                {ok, Output, Code} ->
                     logger:info("Exec cwd:~ts~ncommand:~ts~nCode: ~p~nOutput:~n~tp~n", [Path0, Command, Code, Output]),
                     {ok, [#{<<"type">> => <<"text">>, <<"text">> => jsx:encode(#{output => Output, code => Code})}]};
-                false ->
-                    {error, unicode:characters_to_binary(io_lib:format("Directory does not exist: ~ts", [Path0]))}
+                {error, Reason} ->
+                    {error, unicode:characters_to_binary([<<"Execution error: ">>, io_lib:format("~p", [Reason])])}
             end;
         {error, _} ->
             {error, <<"outside_root">>}
@@ -582,6 +627,7 @@ safe_path(Root, RelPath) ->
         <<".png">> -> <<"image/png">>;
         <<".gif">> -> <<"image/gif">>;
         <<".tiff">> -> <<"image/tiff">>;
+        <<".svg">> -> <<"image/svg+xml">>;
        
         %% --- По умолчанию ---
         _ -> <<"application/octet-stream">>
