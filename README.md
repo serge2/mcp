@@ -1,6 +1,6 @@
 # Core Systems MCP Server
 
-A high-performance Model Context Protocol (MCP) server implemented in Erlang using the `emcp` framework. This server provides advanced System Automation, Stateful Sandboxed CLI Environments, and Headless Browser Automation capabilities tailored for LLM agents.
+An example of a Model Context Protocol (MCP) server implemented in Erlang using the `emcp` framework. This server provides advanced System Automation, Stateful Sandboxed CLI Environments, and Headless Browser Automation capabilities tailored for LLM agents.
 
 > ⚠️ **DISCLAIMER: EXPERIMENTAL PURPOSES ONLY**
 > This server is designed for research, prototyping, and rapid AI orchestration experimentation. Out of the box, it lacks the multi-tenant isolation, aggressive resource quotas, and absolute container hardening required for a secure production infrastructure. See the [Production Hardening Requirements](#production-hardening-requirements) section below.
@@ -48,6 +48,7 @@ To safely bridge the gap between this experimental codebase and a hardened produ
 ### Prerequisites
 * Erlang/OTP 26 or higher
 * **[emcp Framework](https://github.com/serge2/emcp)** (The core engine powering this server's MCP implementation)
+* **[The RAG service](https://github.com/serge2/rag)** 
 * Rebar3 build tool
 * A local Docker daemon configured to allow the host network layer
 
@@ -74,9 +75,18 @@ Configure your primary application parameters using your `sys.config` file based
 ```
 
 ### Running the Server
+Build the docker images:
+```bash
+$ ./build_docker.sh
+```
+
+Build the code:
+```bash
+$ compile.sh
+```
+
 Boot the server application node directly inside the Erlang shell interface:
 ```bash
-priv/headless-browser/restart.sh
-ERL_FLAGS='+pc unicode' rebar3 shell
+$ ./start_all.sh
 ```
 The server will boot and begin listening for incoming Server-Sent Events (SSE) / HTTP orchestration calls at `http://0.0.0.0:8080/mcp`.
