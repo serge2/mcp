@@ -1,12 +1,8 @@
 [
  {mcp, [
-   {root_dir, "/var/tmp"},
+   {root_dir, "/var/mcp_sandbox_root"},
    {listen_ip, "0.0.0.0"},
    {listen_port, 8080},
-   {tls_, [
-     {keyfile, "config/server.key.pem"},
-     {certfile, "config/server.cert.pem"}
-   ]},
    {api_keys,
      [
       <<"SecretAPIKey">>

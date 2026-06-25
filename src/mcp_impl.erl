@@ -16,14 +16,13 @@ schema() ->
       version => <<"0.1.0">>,
       title => <<"System & Browser Automation Server">>,
       instructions => <<"### SYSTEM & BROWSER AUTOMATION GUIDELINES:\n\n"
-                        "1. **Sandboxed Shell (`exec`)**:\n"
-                        "   - Restricted Ubuntu. Non-interactive only.\n"
+                        "1. **Persistent Sandboxed Shell (`exec`)**:\n"
                         "   - BEFORE running any CLI commands, you MUST create an environment session using `env_session_start`.\n"
                         "   - ALWAYS provide the received `session_id` to subsequent `exec` and `env_session_close` tools.\n"
-                        "   - The environment is persistent across your calls within the same session. You can install packages (e.g., `apt update && apt install -y package`) and they will remain available.\n"
-                        "   - ALWAYS close your environment session using `env_session_close` when your task is complete to release host resources.\n"
-                        "   - **Files**: Use heredocs (`cat << 'EOF' > file`) for creation; ALWAYS use `patch` "
-                        "for editing (unified diff via stdin) to avoid rewriting entire files.\n\n"
+                        "   - **User Privileges & Sudo Restrictions**: The sandbox runs under a **restricted, unprivileged user account**. Elevated privileges (`sudo`) are STRICTLY limited to `apt` and `apt-get` commands (e.g., `sudo apt-get update && sudo apt-get install -y package`). You CANNOT use `sudo` with any other commands. Do all your regular work as a non-root user.\n"
+                        "   - **File Artifacts & Workspace (CRITICAL)**: Because of unprivileged access, all files, scripts, and generated artifacts MUST be created and stored strictly within the `/workspace` directory structure. Writing to system directories is forbidden. Files outside of `/workspace` will be destroyed when the session closes.\n"
+                        "   - **File Operations**: Use heredocs (`cat << 'EOF' > file`) for file creation. For editing or modifying existing files, ALWAYS use either `patch` (unified diff via stdin) or `sed` to avoid rewriting entire files.\n"
+                        "   - ALWAYS close your environment session using `env_session_close` when your task is complete.\n\n"
                         "2. **Web Browsing & Extraction (STRICT RULES)**:\n"
                         "   - **Eval Syntax (CRITICAL)**: In `http_session_eval`, DO NOT use `return` at the top level. "
                         "Simply write the expression (e.g., `document.documentElement.outerHTML.slice(0, 10000)`). "
@@ -81,7 +80,6 @@ tools_info() ->
                     type       => object,
                     properties => #{
                         <<"session_id">> => #{ type => string, description => <<"The active environment session ID.">> },
-                        <<"cwd">>     => #{ type => string, description => <<"The working directory inside the sandbox.">>, default => <<"/workspace">>},
                         <<"command">> => #{ type => string, description => <<"The full Bash command to execute (e.g., 'ls -la', 'cat file.txt'). Support pipes and redirections.">> }
                     },
                     required => [<<"session_id">>, <<"command">>]
@@ -526,7 +524,7 @@ http_session_click(_Name, #{<<"session_id">> := Session} = Args, _ExtraParams) -
 
 env_session_start(_Name, _Args, ExtraParams) ->
     Root = maps:get(root_dir, ExtraParams),
-    SessionId = integer_to_list(binary:decode_unsigned(crypto:strong_rand_bytes(6)), 36),
+    SessionId = integer_to_list(binary:decode_unsigned(crypto:strong_rand_bytes(12)), 36),
     SessionIdBin = list_to_binary(string:lowercase(SessionId)),
     case mcp_sandbox_docker:start_session(Root, SessionIdBin) of
         ok ->
@@ -543,20 +541,13 @@ env_session_close(_Name, #{<<"session_id">> := SessionId}, _ExtraParams) ->
             {error, unicode:characters_to_binary([<<"Failed to close env session: ">>, Reason])}
     end.
 
-exec(_Name, #{<<"session_id">> := SessionId, <<"command">> :=Command} = Args, ExtraParams) ->
-    Path0 = maps:get(<<"cwd">>, Args, <<"/workspace">>),
-    Root = maps:get(root_dir, ExtraParams),
-    case safe_path(Root, Path0) of
-        {ok, AbsPath} ->
-            case mcp_sandbox_docker:run_in_session(SessionId, Path0, Command, Root) of
-                {ok, Output, Code} ->
-                    logger:info("Exec cwd:~ts~ncommand:~ts~nCode: ~p~nOutput:~n~tp~n", [Path0, Command, Code, Output]),
-                    {ok, [#{<<"type">> => <<"text">>, <<"text">> => jsx:encode(#{output => Output, code => Code})}]};
-                {error, Reason} ->
-                    {error, unicode:characters_to_binary([<<"Execution error: ">>, io_lib:format("~p", [Reason])])}
-            end;
-        {error, _} ->
-            {error, <<"outside_root">>}
+exec(_Name, #{<<"session_id">> := SessionId, <<"command">> :=Command}, _ExtraParams) ->
+    case mcp_sandbox_docker:run_in_session(SessionId, Command) of
+        {ok, Output, Code} ->
+            logger:info("Exec command:~ts~nCode: ~p~nOutput:~n~ts~n", [Command, Code, Output]),
+            {ok, [#{<<"type">> => <<"text">>, <<"text">> => jsx:encode(#{output => Output, code => Code})}]};
+        {error, Reason} ->
+            {error, unicode:characters_to_binary([<<"Execution error: ">>, io_lib:format("~p", [Reason])])}
     end.
 
 
